@@ -1,16 +1,19 @@
-from flask import Flask, request, jsonify, render_template, session, redirect, url_for
-from flask_cors import CORS
-import threading
 import os
+import threading
 
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from langchain.schema import Document
 
 from scrape import web_scrape
+from scrape.web_scrape import load_docs_from_jsonl, save_docs_to_jsonl
 
 app = Flask(__name__)
-CORS(app,  origins="*")  # Enable CORS for all routes
+CORS(app, origins="*")  # Enable CORS for all routes
+
 
 @app.route('/')
-def home(): 
+def home():
     return "Hello, this is the home route!"
 
 
@@ -35,8 +38,7 @@ def failed_urls():
     return response
 
 
-
-# this api will scrape only new links data and concatetenate inside old data 
+# this api will scrape only new links data and concatetenate inside old data
 @app.route("/update", methods=["POST"])
 def update_data():
     data = request.json
@@ -50,15 +52,12 @@ def update_data():
         os.remove(fail_urls_path)
         print(f"The file {fail_urls_path} has been removed.")
 
-
-    thread = threading.Thread(target=web_scrape.for_updating_data, args=(url,name,))
+    thread = threading.Thread(target=web_scrape.for_updating_data, args=(url, name,))
     thread.start()
 
-    msg=f"Web scraping is being processed on url: {url} it will take 5-10 mins (time is depend upon the website size). Please wait..."
-
+    msg = f"Web scraping is being processed on url: {url} it will take 5-10 mins (time is depend upon the website size). Please wait..."
 
     return jsonify(message=msg)
-
 
 
 # this api will scrape all the content of the given url and its sub urls
@@ -76,7 +75,7 @@ def scrape_data():
     if os.path.exists(file_path):
         # Remove the file
         os.remove(file_path)
-        print(f"The file {file_path} has been removed.")  
+        print(f"The file {file_path} has been removed.")
 
     if os.path.exists(links_path):
         # Remove the file
@@ -88,11 +87,10 @@ def scrape_data():
         os.remove(fail_urls_path)
         print(f"The file {fail_urls_path} has been removed.")
 
-    thread = threading.Thread(target=web_scrape.for_new_data, args=(url,name,))
+    thread = threading.Thread(target=web_scrape.for_new_data, args=(url, name,))
     thread.start()
 
-    msg=f"Web scraping is being processed on url: {url} it will take 5-10 mins (time is depend upon the website size). Please wait..."
-
+    msg = f"Web scraping is being processed on url: {url} it will take 5-10 mins (time is depend upon the website size). Please wait..."
 
     return jsonify(message=msg)
 
@@ -104,8 +102,7 @@ def scrape_1data():
     url = data['url']
     name = data['name']
 
-    data = web_scrape.scrape_page(url,name)
-
+    data = web_scrape.scrape_page(url, name)
     if data == "failed to scrape url":
         json_data = data
     else:
@@ -113,6 +110,53 @@ def scrape_1data():
 
     return jsonify(json_data)
 
+
+@app.route("/add_custom_page", methods=["POST"])
+def add_custom_page():
+    """Add a custom page to the scraped data"""
+    data = request.json
+    source = data['url']
+    content = data['content']
+    title = data['title']
+    lang = data['language']
+    description = data['description']
+    name = data['name']
+    json_path = f'data/{name}_data.json'
+
+    data = [Document(
+        metadata={
+            "title": title,
+            "source": source,
+            "language": lang,
+            "description": description,
+        },
+        page_content=content,
+        type="Document"
+    )]
+
+    if os.path.exists(json_path):
+        old_data = load_docs_from_jsonl(json_path)
+        for doc in old_data:
+            if doc not in data:
+                data.append(doc)
+        save_docs_to_jsonl(data, json_path)
+
+        # Write the filtered links to a text file
+        links_path = f'data/{name}_filtered_links.txt'
+        with open(links_path, 'a') as file:
+            file.write(source + '\n')
+
+    else:
+        save_docs_to_jsonl(data, json_path)
+
+        # Write the filtered links to a text file
+        links_path = f'data/{name}_filtered_links.txt'
+        with open(links_path, 'a') as file:
+            file.write(source + '\n')
+
+    json_data = [vars(doc) for doc in data]
+
+    return jsonify(json_data)
 
 
 # this api will load the scraped data and return it if data is found
@@ -122,27 +166,16 @@ def load():
     name = data['name']
     data_path = f'data/{name}_data.json'
 
-
     if os.path.exists(data_path):
         # json_data = web_scrape.load_docs_from_jsonl(data_path)
         json_data = [vars(doc) for doc in web_scrape.load_docs_from_jsonl(data_path)]
-
-    
     else:
         json_data = "data is being scraped wait few minutes..."
- 
+
     # print( json_data[0][0]['page_content'] )
-    
 
     return jsonify(json_data)
 
 
-
-
-
-
-
-
 if __name__ == '__main__':
-
-    app.run(host='0.0.0.0' , port=5000)
+    app.run(host='0.0.0.0', port=5000)
